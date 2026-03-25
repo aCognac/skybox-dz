@@ -27,8 +27,15 @@ _last_activity_at: float = 0.0
 
 # ── solar window ──────────────────────────────────────────────────────────────
 
+_solar_cache: tuple[date, int, int] | None = None  # (for_date, sunrise_min, sunset_min)
+
+
 def _solar_window() -> tuple[int, int]:
-    """Return (sunrise_min, sunset_min) as local minutes-since-midnight."""
+    """Return (sunrise_min, sunset_min) as local minutes-since-midnight, cached per day."""
+    global _solar_cache
+    today = date.today()
+    if _solar_cache and _solar_cache[0] == today:
+        return _solar_cache[1], _solar_cache[2]
     try:
         from astral import LocationInfo
         from astral.sun import sun as astral_sun
@@ -38,16 +45,19 @@ def _solar_window() -> tuple[int, int]:
             longitude=settings.dz_lon,
             timezone=settings.dz_tz,
         )
-        s = astral_sun(loc.observer, date=date.today(), tzinfo=loc.timezone)
+        s = astral_sun(loc.observer, date=today, tzinfo=loc.timezone)
 
         def _to_min(dt: datetime) -> int:
             local = dt.astimezone(ZoneInfo(settings.dz_tz))
             return local.hour * 60 + local.minute
 
-        return _to_min(s["sunrise"]), _to_min(s["sunset"])
+        result = _to_min(s["sunrise"]), _to_min(s["sunset"])
     except Exception as exc:
         logger.debug("Solar window calculation failed (%s) — using 06:00–20:00", exc)
-        return 6 * 60, 20 * 60
+        result = 6 * 60, 20 * 60
+
+    _solar_cache = (today, *result)
+    return result
 
 
 def _is_daytime() -> bool:
